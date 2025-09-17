@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<script>
+    async function fetchData(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json(); // Or .text(), .blob(), etc.
+            return data;
+        } catch (error) {
+            console.error("Error fetching data:", error);
+        }
+    }
+
+    // Cache system
+    const classCache = {
+        data: new Map(),
+        lastUpdated: new Map(),
+
+        // Cache duration in milliseconds (15 minutes)
+        CACHE_DURATION: 15 * 60 * 1000,
+
+        set(key, value) {
+            this.data.set(key, value);
+            this.lastUpdated.set(key, Date.now());
+            console.log(`Cached data for ${key}`);
+        },
+
+        get(key) {
+            if (!this.data.has(key)) {
+                return null;
+            }
+
+            const lastUpdate = this.lastUpdated.get(key);
+            const now = Date.now();
+
+            // Check if cache is still valid
+            if (now - lastUpdate > this.CACHE_DURATION) {
+                console.log(`Cache expired for ${key}`);
+                this.data.delete(key);
+                this.lastUpdated.delete(key);
+                return null;
+            }
+
+            console.log(`Using cached data for ${key}`);
+            return this.data.get(key);
+        },
+
+        has(key) {
+            const cachedData = this.get(key);
+            return cachedData !== null;
+        },
+
+        clear() {
+            this.data.clear();
+            this.lastUpdated.clear();
+            console.log('Cache cleared');
+        },
+
+        // Get cache statistics
+        getStats() {
+            return {
+                totalEntries: this.data.size,
+                entries: Array.from(this.data.keys()),
+                lastUpdated: Object.fromEntries(this.lastUpdated)
+            };
+        }
+    };
+
+    async function fetchDataWithCache(url, cacheKey = null) {
+        // Use URL as cache key if not provided
+        if (!cacheKey) {
+            cacheKey = url;
+        }
+
+        // Check cache first
+        const cachedData = classCache.get(cacheKey);
+        if (cachedData) {
+            return cachedData;
+        }
+
+        // Fetch fresh data
+        try {
+            const data = await fetchData(url);
+            if (data) {
+                classCache.set(cacheKey, data);
+            }
+            return data;
+        } catch (error) {
+            console.error(`Error fetching data for ${cacheKey}:`, error);
+            throw error;
+        }
+    }
+
+    //request my profile data for authentication purposes
+    fetchDataWithCache("http://xennick.com:25480/proxy/d2l/api/lp/1.32/users/whoami", "user_profile")
+        .then(data => {
+            document.getElementById('output').innerHTML = "You are authenticated."
+        })
+        .catch(error => {
+            document.getElementById('output').innerHTML = "You are NOT authenticated."
+            //make a button here that redirects to purdue login and resets value, sends cookie to server.
+        });
+
+    //requesting all classes for sidebar navigation
+    fetchDataWithCache("http://xennick.com:25480/proxy/d2l/api/lp/1.0/enrollments/myenrollments/", "user_enrollments")
+        .then(data => {
+            console.log(data);
+            createClassSidebar(data);
+        })
+        .catch(error => {
+            console.error("Error loading classes:", error);
+            document.getElementById('sidebar').innerHTML = '<div class="sidebar-item">Error loading classes</div>';
+        });
+
+</script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Darkspace</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2a2a2a;
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background-color: #1a1a1a;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+
+        .menu-toggle {
+            background: none;
+            border: none;
+            color: #ffffff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 10px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 60px;
+            left: -250px;
+            width: 250px;
+            height: calc(100vh - 60px);
+            background-color: #1a1a1a;
+            transition: left 0.3s ease;
+            z-index: 999;
+            overflow-y: auto;
+        }
+
+        .sidebar.open {
+            left: 0;
+        }
+
+        .sidebar-item {
+            height: 10vh;
+            margin: 5px 10px;
+            background-color: #0f0f0f;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #ffffff;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            padding: 10px;
+            font-size: 14px;
+        }
+
+        .sidebar-group {
+            margin: 5px 10px;
+        }
+
+        .group-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sub-item:hover {
+            background-color: #222222 !important;
+        }
+
+        .main-content {
+            margin-top: 60px;
+            padding: 20px;
+            transition: margin-left 0.3s ease;
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+            width: calc(100vw - 250px);
+            margin-left: 250px;
+        }
+
+        .sidebar:not(.open) ~ .main-content {
+            width: 100vw;
+            margin-left: 0;
+        }
+
+        /* Dropdown styles */
+        .item-type-dropdown {
+            margin: 5px 10px;
+            background-color: #1a1a1a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .dropdown-header {
+            background-color: #333333;
+            color: #ffffff;
+            padding: 15px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+
+        .dropdown-header:hover {
+            background-color: #404040;
+        }
+
+        .dropdown-arrow {
+            transition: transform 0.3s ease;
+        }
+
+        .dropdown-arrow.expanded {
+            transform: rotate(180deg);
+        }
+
+        .dropdown-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            background-color: #0f0f0f;
+        }
+
+        .dropdown-content.expanded {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .dropdown-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            border-bottom: 1px solid #2a2a2a;
+            transition: background-color 0.3s ease;
+            font-size: 13px;
+        }
+
+        .dropdown-item:hover {
+            background-color: #222222;
+        }
+
+        .dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .loading-indicator {
+            padding: 15px;
+            text-align: center;
+            color: #888888;
+            font-style: italic;
+        }
+
+        .no-items {
+            padding: 15px;
+            text-align: center;
+            color: #666666;
+            font-style: italic;
+        }
+
+        /* Custom scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #404040;
+            border-radius: 4px;
+            transition: background 0.3s ease;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555555;
+        }
+
+        ::-webkit-scrollbar-corner {
+            background: #1a1a1a;
+        }
+
+        /* Firefox scrollbar styling */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #404040 #1a1a1a;
+        }
+    </style>
+</head>
+<body>
+<header class="header">
+    <p id="output">Authentication Here</p>
+    <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+</header>
+
+<nav class="sidebar open" id="sidebar">
+    <div class="sidebar-item">Loading classes...</div>
+</nav>
+
+<main class="main-content" id="main-content">
+    <h1>Darkspace</h1>
+    <p>Select a class from the sidebar to view content</p>
+</main>
+
+<script>
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.classList.toggle('open');
+    }
+
+    function createSidebarBoxes(itemArray) {
+        const sidebar = document.getElementById('sidebar');
+
+        // Clear existing boxes
+        sidebar.innerHTML = '';
+
+        // Create a box for each item in the array
+        itemArray.forEach((item) => {
+            const box = document.createElement('div');
+            box.className = 'sidebar-item';
+            box.textContent = item;
+            sidebar.appendChild(box);
+        });
+    }
+
+    function createItemTypeDropdowns(items, containerElement) {
+        // Group items by ActivityType
+        const itemsByType = {};
+        const activityTypeNames = {
+            0: 'Module',
+            1: 'File',
+            2: 'Link',
+            3: 'Dropbox',
+            4: 'Quizzes',
+            5: 'Discussion',
+            6: 'DiscussionTopic',
+            7: 'Integrated Assignments',
+            8: 'Chat',
+            9: 'Schedule',
+            10: 'Checklist',
+            11: 'Self Assessment',
+            12: 'Survey',
+            13: 'Online Room',
+            20: 'Scorm',
+            21: 'Scorm',
+            22: 'Scorm',
+            23: 'Scorm',
+            24: 'Scorm',
+            25: 'Lor',
+            26: 'LorScorm',
+            27: "LTIAdvantage",
+            28: 'OrgUnit',
+            29: 'ActivityInstance'
+        };
+
+        items.forEach(item => {
+            const type = item.ActivityType;
+            const typeName = activityTypeNames[type] || `Type ${type}`;
+
+            if (!itemsByType[typeName]) {
+                itemsByType[typeName] = [];
+            }
+            itemsByType[typeName].push(item);
+        });
+
+        // Clear existing content
+        containerElement.innerHTML = '';
+
+        // Create dropdown for each item type
+        Object.keys(itemsByType).forEach(typeName => {
+            const typeItems = itemsByType[typeName];
+
+            // Create dropdown container
+            const dropdown = document.createElement('div');
+            dropdown.className = 'item-type-dropdown';
+
+            // Create dropdown header
+            const header = document.createElement('div');
+            header.className = 'dropdown-header';
+            header.innerHTML = `
+                <span>${typeName} (${typeItems.length})</span>
+                <span class="dropdown-arrow">▼</span>
+            `;
+
+            // Create dropdown content
+            const content = document.createElement('div');
+            content.className = 'dropdown-content';
+
+            // Sort items by name before adding to dropdown
+            const sortedItems = typeItems.sort((a, b) => {
+                const nameA = (a.ItemName || a.Title || 'Unnamed Item').toLowerCase();
+                const nameB = (b.ItemName || b.Title || 'Unnamed Item').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+
+            // Add sorted items to dropdown content
+            sortedItems.forEach(item => {
+                const itemElement = document.createElement('div');
+                itemElement.className = 'dropdown-item';
+                itemElement.textContent = item.ItemName || item.Title || 'Unnamed Item';
+
+                // Add click handler for individual items
+                itemElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    console.log('Selected item:', item);
+                    // Update main content or handle item selection
+                    updateMainContent(item);
+                });
+
+                content.appendChild(itemElement);
+            });
+
+            // Add toggle functionality
+            header.addEventListener('click', () => {
+                const isExpanded = content.classList.contains('expanded');
+                const arrow = header.querySelector('.dropdown-arrow');
+
+                if (isExpanded) {
+                    content.classList.remove('expanded');
+                    arrow.classList.remove('expanded');
+                } else {
+                    content.classList.add('expanded');
+                    arrow.classList.add('expanded');
+                }
+            });
+
+            dropdown.appendChild(header);
+            dropdown.appendChild(content);
+            containerElement.appendChild(dropdown);
+        });
+
+        // Show message if no items
+        if (Object.keys(itemsByType).length === 0) {
+            const noItems = document.createElement('div');
+            noItems.className = 'no-items';
+            noItems.textContent = 'No content items found';
+            containerElement.appendChild(noItems);
+        }
+    }
+
+    function updateMainContent(item) {
+        const mainContent = document.getElementById('main-content');
+        mainContent.innerHTML = `
+            <h1>${item.ItemName || item.Title || 'Selected Item'}</h1>
+            <div style="background-color: #1a1a1a; padding: 20px; border-radius: 8px; margin-top: 20px;">
+                <h3>Item Details:</h3>
+                <p><strong>Type:</strong> ${item.ActivityType}</p>
+                <p><strong>ID:</strong> ${item.ItemId}</p>
+                <p><strong>Org Unit:</strong> ${item.OrgUnitId}</p>
+                ${item.Description ? `<p><strong>Description:</strong> ${item.Description}</p>` : ''}
+                ${item.DueDate ? `<p><strong>Due Date:</strong> ${new Date(item.DueDate).toLocaleDateString()}</p>` : ''}
+            </div>
+        `;
+    }
+
+    function createClassSidebar(responseData) {
+        const sidebar = document.getElementById('sidebar');
+
+        // Clear existing content
+        sidebar.innerHTML = '';
+
+        // Check if data exists and has the expected structure
+        if (!responseData || !responseData.Items || !Array.isArray(responseData.Items)) {
+            sidebar.innerHTML = '<div class="sidebar-item">No classes found</div>';
+            return;
+        }
+
+        const classesArray = responseData.Items;
+
+        // Group classes by their course code (first 4 parts)
+        const groupedClasses = {};
+
+        classesArray.forEach((classObj) => {
+            const orgUnitCode = classObj.OrgUnit?.Code || '';
+            const codeParts = orgUnitCode.split('.');
+
+            if (codeParts.length >= 4) {
+                const courseCode = codeParts.slice(0, 4).join('.');
+                const displayName = codeParts.slice(2, 4).join('.');
+
+                if (!groupedClasses[courseCode]) {
+                    groupedClasses[courseCode] = {
+                        displayName: displayName,
+                        classes: []
+                    };
+                }
+                groupedClasses[courseCode].classes.push(classObj);
+            } else {
+                // Handle classes without proper org unit code structure
+                if (!groupedClasses['ungrouped']) {
+                    groupedClasses['ungrouped'] = {
+                        displayName: 'Other Classes',
+                        classes: []
+                    };
+                }
+                groupedClasses['ungrouped'].classes.push(classObj);
+            }
+        });
+
+        // Create sidebar structure
+        Object.keys(groupedClasses).forEach((courseCode) => {
+            const group = groupedClasses[courseCode];
+
+            if (group.classes.length === 1) {
+                // Single class - create normal sidebar item
+                const classItem = document.createElement('div');
+                classItem.className = 'sidebar-item';
+
+                const classObj = group.classes[0];
+                const className = classObj.Name || classObj.name || classObj.DisplayName ||
+                    classObj.displayName || classObj.Title || classObj.title ||
+                    classObj.CourseName || classObj.courseName ||
+                    `Class ${classObj.Id || classObj.id || 'Unknown'}`;
+
+                classItem.textContent = className;
+
+                classItem.addEventListener('click', () => {
+                    console.log('Selected class:', group.classes[0]);
+                    loadClassContent([group.classes[0]]);
+                });
+
+                // Add non-merged classes to sidebar
+                // sidebar.appendChild(classItem);
+            } else {
+                // Multiple classes - create group container
+                const groupContainer = document.createElement('div');
+                groupContainer.className = 'sidebar-group';
+
+                // Group header
+                const groupHeader = document.createElement('div');
+                groupHeader.className = 'sidebar-item group-header';
+                groupHeader.textContent = group.displayName;
+                groupHeader.style.fontWeight = 'bold';
+                groupHeader.style.backgroundColor = '#333333';
+
+                groupHeader.addEventListener('click', () => {
+                    console.log('Selected class group:', group);
+                    loadClassContent(group.classes);
+                });
+
+                groupContainer.appendChild(groupHeader);
+
+                // Sub-items for each class in the group
+                group.classes.forEach((classObj) => {
+                    const subItem = document.createElement('div');
+                    subItem.className = 'sidebar-item sub-item';
+                    subItem.style.marginLeft = '20px';
+                    subItem.style.backgroundColor = '#0a0a0a';
+                    subItem.style.height = '8vh';
+                    subItem.style.fontSize = '12px';
+                    subItem.style.display = 'none';
+
+                    const className = classObj.OrgUnit?.Name ||
+                        classObj.OrgUnit?.Code ||
+                        `Class ${classObj.OrgUnit?.Id || 'Unknown'}`;
+
+                    subItem.textContent = className;
+                    Object.assign(subItem, classObj);
+
+                    groupContainer.appendChild(subItem);
+                });
+
+                sidebar.appendChild(groupContainer);
+            }
+        });
+
+        // If no classes were found
+        if (classesArray.length === 0) {
+            sidebar.innerHTML = '<div class="sidebar-item">No classes enrolled</div>';
+        }
+    }
+
+    function loadClassContent(classes) {
+        const mainContent = document.getElementById('main-content');
+
+        // Create cache key based on class IDs
+        const IdsInGroup = classes.map(classObj => classObj.OrgUnit?.Id).filter(id => id);
+        const cacheKey = `class_content_${IdsInGroup.sort().join('_')}`;
+
+        // Show loading indicator
+        mainContent.innerHTML = '<div class="loading-indicator">Loading class content...</div>';
+
+        console.log('Loading content for class IDs:', IdsInGroup);
+
+        // Check cache first
+        const cachedContent = classCache.get(cacheKey);
+        if (cachedContent) {
+            console.log('Using cached class content');
+            displayClassContent(classes, cachedContent);
+            return;
+        }
+
+        fetchData(`http://xennick.com:25480/proxy/d2l/api/le/1.75/content/myItems/?orgUnitIdsCSV=${IdsInGroup.join(',')}`)
+            .then(data => {
+                let WholeData = { ...data }; // Start with first response
+
+                if(data.Next) {
+                    let nextLink = (data.Next).split(".com/");
+                    return fetchData(`http://xennick.com:25480/proxy/${nextLink[1]}`)
+                        .then(nextData => {
+                            // If the data contains arrays, concatenate them
+                            Object.keys(nextData).forEach(key => {
+                                if (Array.isArray(WholeData[key]) && Array.isArray(nextData[key])) {
+                                    WholeData[key] = [...WholeData[key], ...nextData[key]];
+                                } else {
+                                    WholeData[key] = nextData[key]; // For non-arrays, replace
+                                }
+                            });
+                            return WholeData;
+                        });
+                } else {
+                    return WholeData;
+                }
+            })
+            .then(finalData => {
+                console.log("Content loaded:", finalData);
+
+                // Cache the fetched data
+                classCache.set(cacheKey, finalData);
+
+                displayClassContent(classes, finalData);
+            })
+            .catch(error => {
+                console.error("Error loading class data:", error);
+                mainContent.innerHTML = '<div class="no-items">Error loading class content</div>';
+            });
+    }
+
+    function displayClassContent(classes, finalData) {
+        const mainContent = document.getElementById('main-content');
+
+        // Create class name
+        const className = classes.length === 1 ?
+            (classes[0].OrgUnit?.Name || 'Selected Class') :
+            `${classes[0].OrgUnit?.Code?.split('.').slice(2, 4).join('.') || 'Class Group'} (${classes.length} classes)`;
+
+        mainContent.innerHTML = `<h1>${className}</h1><div id="content-dropdowns"></div>`;
+
+        const contentContainer = document.getElementById('content-dropdowns');
+
+        if (finalData.Objects && finalData.Objects.length > 0) {
+            createItemTypeDropdowns(finalData.Objects, contentContainer);
+        } else {
+            contentContainer.innerHTML = '<div class="no-items">No content items found for this class</div>';
+        }
+    }
+</script>
+</body>
+</html>
